@@ -1,0 +1,2 @@
+# BetaFish
+Awful Chess Engine
