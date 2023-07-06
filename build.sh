@@ -1,0 +1,1 @@
+gcc run.c -o run
