@@ -1,24 +1,70 @@
-from helpers import send_command
+import chess
+from helpers import send_command, expect_num_args, expect_at_pos
 
 
-def handle_uci(*args) -> None:
-    if len(args) > 0:
-        send_command(
-            "info",
-            "string",
-            f"Command uci has incorrect number of args. Found {len(args)}, expected 0"
-        )
+class EngineContext:
+    def __init__(self):
+        self.settings = {}
+        self.debug = False
+        self.position = chess.Board()
+        self.runLoop = True
+        self.execSearch = False
+
+
+def handle_uci(_context: EngineContext, *args) -> None:
+    expect_num_args("uci", [0], *args)
     send_command("id", "name", "BetaFish")
     send_command("id", "author", "Gerald Lee")
     send_command("uciok")
 
 
+def handle_debug(context: EngineContext, *args) -> None:
+    if not expect_num_args("debug", [1], *args):
+        return
+    if expect_at_pos("debug", 0, ["on", "off"], *args):
+        context.debug = args[0] == "on"
+
+
+def handle_isready(_context: EngineContext, *args) -> None:
+    expect_num_args("isready", [0], *args)
+    send_command("readyok")
+
+
+def handle_setoption(context: EngineContext, *args) -> None:
+    if not expect_num_args("setoption", [2, 4], *args):
+        return
+    if not expect_at_pos("setoption", 0, ["name"], *args):
+        return
+    if len(args) == 4:
+        if not expect_at_pos("setoption", 2, ["value"], *args):
+            return
+        context.settings[args[1]] = args[3]
+    else:
+        context.settings[args[1]] = None
+
+
+def handle_ucinewgame(context: EngineContext, *args) -> None:
+    expect_num_args("ucinewgame", [0], *args)
+    context.position.clear()
+
+
+def handle_quit(context: EngineContext, *args) -> None:
+    expect_num_args("quit", [0], *args)
+    context.runLoop = False
+
+
 handlers = {
     "uci": handle_uci,
+    "debug": handle_debug,
+    "isready": handle_isready,
+    "setoption": handle_setoption,
+    "ucinewgame": handle_ucinewgame,
+    "quit": handle_quit,
 }
 
 if __name__ == "__main__":
-    while True:
+    context = EngineContext()
+    while context.runLoop:
         commandRaw = input()
         if len(commandRaw) == 0:
             continue
@@ -27,6 +73,6 @@ if __name__ == "__main__":
         command = tokens[0]
         handler = handlers.get(command, None)
         if handler is not None:
-            handler(*tokens[1:])
+            handler(context, *tokens[1:])
         else:
             send_command("info", "string", f"unknown command {command}")
