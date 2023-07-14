@@ -1,4 +1,4 @@
-use chess::{Board, BoardStatus, ChessMove, Color, MoveGen, Piece};
+use chess::{Board, BoardStatus, CacheTable, ChessMove, Color, MoveGen, Piece};
 use std::ffi::{c_ushort, CStr, CString};
 use std::ops::BitAnd;
 use std::os::raw::c_char;
@@ -9,6 +9,7 @@ struct PieceValuePair {
     value: i32,
 }
 
+#[derive(Clone, Copy, PartialEq, PartialOrd)]
 struct SearchResult {
     value: i32,
     best_move: Option<ChessMove>,
@@ -61,16 +62,23 @@ pub unsafe extern "C" fn start_search(
     raw_fen_ptr: *const c_char,
     raw_depth: *const c_ushort,
 ) -> *mut c_char {
+    let mut memo_table: CacheTable<SearchResult> = CacheTable::new(
+        65536,
+        SearchResult {
+            best_move: None,
+            value: 0,
+        },
+    );
     let fen = CStr::from_ptr(raw_fen_ptr).to_str().unwrap();
     let depth = *raw_depth.as_ref().unwrap();
-    let best = search(Board::from_str(fen).unwrap(), depth);
+    let best = search(Board::from_str(fen).unwrap(), depth, &mut memo_table);
     match best.best_move {
         Some(best_move) => CString::new(best_move.to_string()).unwrap().into_raw(),
         None => CString::new("0000").unwrap().into_raw(),
     }
 }
 
-fn search(board: Board, depth: u16) -> SearchResult {
+fn search(board: Board, depth: u16, memo_table: &mut CacheTable<SearchResult>) -> SearchResult {
     match board.status() {
         BoardStatus::Ongoing => {}
         BoardStatus::Stalemate => {
@@ -100,6 +108,10 @@ fn search(board: Board, depth: u16) -> SearchResult {
             value: assess_board(&board),
         };
     }
+    match memo_table.get(board.get_hash()) {
+        Some(cached_result) => return cached_result,
+        None => {}
+    }
     let mut result = SearchResult {
         best_move: None,
         value: 0,
@@ -109,7 +121,7 @@ fn search(board: Board, depth: u16) -> SearchResult {
         Color::Black => result.value = i32::MAX,
     }
     for mov in MoveGen::new_legal(&board) {
-        let check = search(board.make_move_new(mov), depth - 1);
+        let check = search(board.make_move_new(mov), depth - 1, memo_table);
         match board.side_to_move() {
             Color::White => {
                 if check.value > result.value {
@@ -125,6 +137,7 @@ fn search(board: Board, depth: u16) -> SearchResult {
             }
         }
     }
+    memo_table.add(board.get_hash(), result);
     result
 }
 
