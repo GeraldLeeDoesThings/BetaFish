@@ -1,5 +1,7 @@
 import chess
+import ctypes
 from helpers import send_command, expect_num_args, expect_at_pos
+from search import search
 
 
 class EngineContext:
@@ -48,6 +50,19 @@ def handle_ucinewgame(context: EngineContext, *args) -> None:
     context.position.clear()
 
 
+def handle_position(context: EngineContext, *args) -> None:
+    if not expect_at_pos("position", 0, ["fen", "startpos"], *args):
+        return
+    if args[0] == "fen":
+        context.position.set_fen(args[1])
+    elif args[0] == "startpos":
+        context.position.reset()
+
+
+def handle_go(context: EngineContext, *_args) -> None:
+    send_command("bestmove", search(context.position.fen(), 4))
+
+
 def handle_quit(context: EngineContext, *args) -> None:
     expect_num_args("quit", [0], *args)
     context.runLoop = False
@@ -59,6 +74,8 @@ handlers = {
     "isready": handle_isready,
     "setoption": handle_setoption,
     "ucinewgame": handle_ucinewgame,
+    "position": handle_position,
+    "go": handle_go,
     "quit": handle_quit,
 }
 
