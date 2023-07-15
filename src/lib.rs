@@ -63,7 +63,7 @@ pub unsafe extern "C" fn start_search(
     raw_depth: *const c_ushort,
 ) -> *mut c_char {
     let mut memo_table: CacheTable<SearchResult> = CacheTable::new(
-        65536,
+        2 << 17,
         SearchResult {
             best_move: None,
             value: 0,
