@@ -2,7 +2,7 @@ from typing import Iterable
 
 
 def send_command(command: str, *args) -> None:
-    print(command, " ".join(args))
+    print(command, *args)
 
 
 def expect_num_args(command: str, nums: Iterable[int], *args) -> bool:

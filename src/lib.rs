@@ -72,14 +72,26 @@ pub unsafe extern "C" fn start_search(
     );
     let fen = CStr::from_ptr(raw_fen_ptr).to_str().unwrap();
     let depth = *raw_depth.as_ref().unwrap();
-    let best = search(Board::from_str(fen).unwrap(), depth, i32::MIN, i32::MAX, &mut memo_table);
+    let best = search(
+        Board::from_str(fen).unwrap(),
+        depth,
+        i32::MIN,
+        i32::MAX,
+        &mut memo_table,
+    );
     match best.best_move {
         Some(best_move) => CString::new(best_move.to_string()).unwrap().into_raw(),
         None => CString::new("0000").unwrap().into_raw(),
     }
 }
 
-fn search(board: Board, depth: u16, mut alpha: i32, mut beta: i32, memo_table: &mut CacheTable<SearchResult>) -> SearchResult {
+fn search(
+    board: Board,
+    depth: u16,
+    mut alpha: i32,
+    mut beta: i32,
+    memo_table: &mut CacheTable<SearchResult>,
+) -> SearchResult {
     match board.status() {
         BoardStatus::Ongoing => {}
         BoardStatus::Stalemate => {
@@ -126,7 +138,7 @@ fn search(board: Board, depth: u16, mut alpha: i32, mut beta: i32, memo_table: &
         match board.side_to_move() {
             Color::White => {
                 alpha = max(alpha, check.value);
-                if check.value > result.value {
+                if check.value > result.value || result.best_move.is_none() {
                     result = check;
                     result.best_move = Some(mov);
                 }
@@ -136,7 +148,7 @@ fn search(board: Board, depth: u16, mut alpha: i32, mut beta: i32, memo_table: &
             }
             Color::Black => {
                 beta = min(beta, check.value);
-                if check.value < result.value {
+                if check.value < result.value || result.best_move.is_none() {
                     result = check;
                     result.best_move = Some(mov);
                 }

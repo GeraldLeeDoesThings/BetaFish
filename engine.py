@@ -6,7 +6,9 @@ from search import search
 
 class EngineContext:
     def __init__(self):
-        self.settings = {}
+        self.settings = {
+            "Depth": "7"
+        }
         self.debug = False
         self.position = chess.Board()
         self.runLoop = True
@@ -17,6 +19,10 @@ def handle_uci(_context: EngineContext, *args) -> None:
     expect_num_args("uci", [0], *args)
     send_command("id", "name", "BetaFish")
     send_command("id", "author", "Gerald Lee")
+    send_command("option", "name", "Depth", "type", "spin", "default", "7", "min", "1", "max", "32")
+    send_command("option", "name", "Hash", "type", "spin", "default", "1", "min", "1", "max", "1024")
+    send_command("option", "name", "Move Overhead", "type", "spin", "default", "0", "min", "0")
+    send_command("option", "name", "Threads", "type", "spin", "default", "1", "min", "1", "max", "128")
     send_command("uciok")
 
 
@@ -57,10 +63,15 @@ def handle_position(context: EngineContext, *args) -> None:
         context.position.set_fen(args[1])
     elif args[0] == "startpos":
         context.position.reset()
+    if len(args) > 1:
+        if not expect_at_pos("position", 1, ["moves"], *args):
+            return
+        for argI in range(2, len(args)):
+            context.position.push(chess.Move.from_uci(args[argI]))
 
 
 def handle_go(context: EngineContext, *_args) -> None:
-    send_command("bestmove", search(context.position.fen(), 8))
+    send_command("bestmove", search(context.position.fen(), int(context.settings["Depth"])))
 
 
 def handle_quit(context: EngineContext, *args) -> None:
