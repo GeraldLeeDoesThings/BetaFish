@@ -1,4 +1,5 @@
 use chess::{Board, BoardStatus, CacheTable, ChessMove, Color, MoveGen, Piece};
+use std::cmp::{max, min};
 use std::ffi::{c_ushort, CStr, CString};
 use std::ops::BitAnd;
 use std::os::raw::c_char;
@@ -63,7 +64,7 @@ pub unsafe extern "C" fn start_search(
     raw_depth: *const c_ushort,
 ) -> *mut c_char {
     let mut memo_table: CacheTable<SearchResult> = CacheTable::new(
-        2 << 17,
+        2 << 26,
         SearchResult {
             best_move: None,
             value: 0,
@@ -71,14 +72,14 @@ pub unsafe extern "C" fn start_search(
     );
     let fen = CStr::from_ptr(raw_fen_ptr).to_str().unwrap();
     let depth = *raw_depth.as_ref().unwrap();
-    let best = search(Board::from_str(fen).unwrap(), depth, &mut memo_table);
+    let best = search(Board::from_str(fen).unwrap(), depth, i32::MIN, i32::MAX, &mut memo_table);
     match best.best_move {
         Some(best_move) => CString::new(best_move.to_string()).unwrap().into_raw(),
         None => CString::new("0000").unwrap().into_raw(),
     }
 }
 
-fn search(board: Board, depth: u16, memo_table: &mut CacheTable<SearchResult>) -> SearchResult {
+fn search(board: Board, depth: u16, mut alpha: i32, mut beta: i32, memo_table: &mut CacheTable<SearchResult>) -> SearchResult {
     match board.status() {
         BoardStatus::Ongoing => {}
         BoardStatus::Stalemate => {
@@ -121,18 +122,26 @@ fn search(board: Board, depth: u16, memo_table: &mut CacheTable<SearchResult>) -
         Color::Black => result.value = i32::MAX,
     }
     for mov in MoveGen::new_legal(&board) {
-        let check = search(board.make_move_new(mov), depth - 1, memo_table);
+        let check = search(board.make_move_new(mov), depth - 1, alpha, beta, memo_table);
         match board.side_to_move() {
             Color::White => {
+                alpha = max(alpha, check.value);
                 if check.value > result.value {
                     result = check;
                     result.best_move = Some(mov);
                 }
+                if result.value >= beta {
+                    break;
+                }
             }
             Color::Black => {
+                beta = min(beta, check.value);
                 if check.value < result.value {
                     result = check;
                     result.best_move = Some(mov);
+                }
+                if result.value <= alpha {
+                    break;
                 }
             }
         }

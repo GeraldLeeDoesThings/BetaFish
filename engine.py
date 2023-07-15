@@ -60,7 +60,7 @@ def handle_position(context: EngineContext, *args) -> None:
 
 
 def handle_go(context: EngineContext, *_args) -> None:
-    send_command("bestmove", search(context.position.fen(), 6))
+    send_command("bestmove", search(context.position.fen(), 8))
 
 
 def handle_quit(context: EngineContext, *args) -> None:
