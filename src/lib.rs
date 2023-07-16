@@ -19,23 +19,23 @@ struct SearchResult {
 const PIECE_VALUES: [PieceValuePair; 5] = [
     PieceValuePair {
         piece: Piece::Pawn,
-        value: 1,
+        value: 10,
     },
     PieceValuePair {
         piece: Piece::Knight,
-        value: 3,
+        value: 30,
     },
     PieceValuePair {
         piece: Piece::Bishop,
-        value: 3,
+        value: 30,
     },
     PieceValuePair {
         piece: Piece::Rook,
-        value: 5,
+        value: 50,
     },
     PieceValuePair {
         piece: Piece::Queen,
-        value: 7,
+        value: 70,
     },
 ];
 
@@ -52,6 +52,14 @@ fn assess_board(board: &Board) -> i32 {
                 .pieces(piece_val_pair.piece)
                 .bitand(board.color_combined(Color::Black))
                 .popcnt() as i32;
+    }
+    let side_scalar = match board.side_to_move() {
+        Color::White => 1,
+        Color::Black => -1,
+    };
+    val += side_scalar * MoveGen::new_legal(board).len() as i32;
+    if let Some(flipped) = board.null_move() {
+        val -= side_scalar * MoveGen::new_legal(&flipped).len() as i32
     }
     val
 }
@@ -100,20 +108,18 @@ fn search(
                 value: 0,
             }
         }
-        BoardStatus::Checkmate => match board.side_to_move() {
-            Color::White => {
-                return SearchResult {
+        BoardStatus::Checkmate => {
+            return match board.side_to_move() {
+                Color::White => SearchResult {
                     best_move: None,
                     value: i32::MIN,
-                }
-            }
-            Color::Black => {
-                return SearchResult {
+                },
+                Color::Black => SearchResult {
                     best_move: None,
                     value: i32::MAX,
-                }
+                },
             }
-        },
+        }
     }
     if depth == 0 {
         return SearchResult {
@@ -121,9 +127,8 @@ fn search(
             value: assess_board(&board),
         };
     }
-    match memo_table.get(board.get_hash()) {
-        Some(cached_result) => return cached_result,
-        None => {}
+    if let Some(cached_result) = memo_table.get(board.get_hash()) {
+        return cached_result;
     }
     let mut result = SearchResult {
         best_move: None,
