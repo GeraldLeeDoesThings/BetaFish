@@ -133,27 +133,32 @@ fn search(
         Color::White => result.value = i32::MIN,
         Color::Black => result.value = i32::MAX,
     }
-    for mov in MoveGen::new_legal(&board) {
-        let check = search(board.make_move_new(mov), depth - 1, alpha, beta, memo_table);
-        match board.side_to_move() {
-            Color::White => {
-                alpha = max(alpha, check.value);
-                if check.value > result.value || result.best_move.is_none() {
-                    result = check;
-                    result.best_move = Some(mov);
+    let masks = [board.color_combined(!board.side_to_move()), &!chess::EMPTY];
+    let mut moves = MoveGen::new_legal(&board);
+    for mask in masks {
+        moves.set_iterator_mask(*mask);
+        for mov in &mut moves {
+            let check = search(board.make_move_new(mov), depth - 1, alpha, beta, memo_table);
+            match board.side_to_move() {
+                Color::White => {
+                    alpha = max(alpha, check.value);
+                    if check.value > result.value || result.best_move.is_none() {
+                        result = check;
+                        result.best_move = Some(mov);
+                    }
+                    if result.value >= beta {
+                        break;
+                    }
                 }
-                if result.value >= beta {
-                    break;
-                }
-            }
-            Color::Black => {
-                beta = min(beta, check.value);
-                if check.value < result.value || result.best_move.is_none() {
-                    result = check;
-                    result.best_move = Some(mov);
-                }
-                if result.value <= alpha {
-                    break;
+                Color::Black => {
+                    beta = min(beta, check.value);
+                    if check.value < result.value || result.best_move.is_none() {
+                        result = check;
+                        result.best_move = Some(mov);
+                    }
+                    if result.value <= alpha {
+                        break;
+                    }
                 }
             }
         }
