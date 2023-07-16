@@ -1,7 +1,6 @@
-use chess::{Board, BoardStatus, CacheTable, ChessMove, Color, MoveGen, Piece};
+use chess::{Board, BoardStatus, CacheTable, ChessMove, Color, MoveGen, Piece, Rank};
 use std::cmp::{max, min};
 use std::ffi::{c_ushort, CStr, CString};
-use std::ops::BitAnd;
 use std::os::raw::c_char;
 use std::str::FromStr;
 
@@ -43,16 +42,15 @@ const MAX_DEPTH_INCREASE: u16 = 3;
 fn assess_board(board: &Board) -> i32 {
     let mut val: i32 = 0;
     for piece_val_pair in PIECE_VALUES {
-        val += piece_val_pair.value
-            * board
-                .pieces(piece_val_pair.piece)
-                .bitand(board.color_combined(Color::White))
-                .popcnt() as i32;
-        val -= piece_val_pair.value
-            * board
-                .pieces(piece_val_pair.piece)
-                .bitand(board.color_combined(Color::Black))
-                .popcnt() as i32;
+        let piece_bits = board.pieces(piece_val_pair.piece);
+        for (_, square) in (board.color_combined(Color::White) & piece_bits).enumerate() {
+            val += piece_val_pair.value
+                + (square.get_rank().to_index() - Rank::Fifth.to_index()) as i32;
+        }
+        for (_, square) in (board.color_combined(Color::Black) & piece_bits).enumerate() {
+            val += piece_val_pair.value
+                + (Rank::Eighth.to_index() - square.get_rank().to_index()) as i32;
+        }
     }
     let side_scalar = match board.side_to_move() {
         Color::White => 1,
