@@ -38,6 +38,7 @@ const PIECE_VALUES: [PieceValuePair; 5] = [
         value: 70,
     },
 ];
+const MAX_DEPTH_INCREASE: u16 = 3;
 
 fn assess_board(board: &Board) -> i32 {
     let mut val: i32 = 0;
@@ -83,6 +84,7 @@ pub unsafe extern "C" fn start_search(
     let best = search(
         Board::from_str(fen).unwrap(),
         depth,
+        depth + MAX_DEPTH_INCREASE,
         i32::MIN,
         i32::MAX,
         &mut memo_table,
@@ -96,6 +98,7 @@ pub unsafe extern "C" fn start_search(
 fn search(
     board: Board,
     depth: u16,
+    depth_limit: u16,
     mut alpha: i32,
     mut beta: i32,
     memo_table: &mut CacheTable<SearchResult>,
@@ -121,7 +124,7 @@ fn search(
             }
         }
     }
-    if depth == 0 {
+    if depth == 0 || depth_limit == 0 {
         return SearchResult {
             best_move: None,
             value: assess_board(&board),
@@ -140,10 +143,22 @@ fn search(
     }
     let masks = [board.color_combined(!board.side_to_move()), &!chess::EMPTY];
     let mut moves = MoveGen::new_legal(&board);
-    for mask in masks {
+    for (processed, mask) in masks.into_iter().enumerate() {
         moves.set_iterator_mask(*mask);
+        let new_depth = if processed == masks.len() - 1 {
+            depth - 1
+        } else {
+            depth
+        };
         for mov in &mut moves {
-            let check = search(board.make_move_new(mov), depth - 1, alpha, beta, memo_table);
+            let check = search(
+                board.make_move_new(mov),
+                new_depth,
+                depth_limit - 1,
+                alpha,
+                beta,
+                memo_table,
+            );
             match board.side_to_move() {
                 Color::White => {
                     alpha = max(alpha, check.value);
