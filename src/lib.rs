@@ -145,14 +145,15 @@ fn search(
     let mut moves = MoveGen::new_legal(&board);
     for (processed, mask) in masks.into_iter().enumerate() {
         moves.set_iterator_mask(*mask);
-        let new_depth = if processed == masks.len() - 1 {
-            depth - 1
-        } else {
-            depth
-        };
         for mov in &mut moves {
+            let new_board = board.make_move_new(mov);
+            let new_depth = if processed < masks.len() - 1 || new_board.checkers().0 > 0 {
+                depth
+            } else {
+                depth - 1
+            };
             let check = search(
-                board.make_move_new(mov),
+                new_board,
                 new_depth,
                 depth_limit - 1,
                 alpha,
