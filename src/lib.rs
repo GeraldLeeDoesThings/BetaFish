@@ -1,4 +1,4 @@
-use chess::{Board, BoardStatus, CacheTable, ChessMove, Color, MoveGen, Piece, Rank};
+use chess::{BitBoard, Board, BoardStatus, CacheTable, ChessMove, Color, MoveGen, Piece};
 use std::cmp::{max, min};
 use std::ffi::{c_ushort, CStr, CString};
 use std::os::raw::c_char;
@@ -7,6 +7,7 @@ use std::str::FromStr;
 struct PieceValuePair {
     piece: Piece,
     value: i32,
+    forward_scale: i32,
 }
 
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
@@ -18,43 +19,62 @@ struct SearchResult {
 const PIECE_VALUES: [PieceValuePair; 5] = [
     PieceValuePair {
         piece: Piece::Pawn,
-        value: 10,
+        value: 100,
+        forward_scale: 3,
     },
     PieceValuePair {
         piece: Piece::Knight,
-        value: 30,
+        value: 300,
+        forward_scale: 2,
     },
     PieceValuePair {
         piece: Piece::Bishop,
-        value: 30,
+        value: 300,
+        forward_scale: 2,
     },
     PieceValuePair {
         piece: Piece::Rook,
-        value: 50,
+        value: 500,
+        forward_scale: 3,
     },
     PieceValuePair {
         piece: Piece::Queen,
-        value: 70,
+        value: 700,
+        forward_scale: 4,
     },
 ];
-const MAX_DEPTH_INCREASE: u16 = 3;
+const RANK_BITBOARDS: [BitBoard; 8] = [
+    BitBoard(0xFF),
+    BitBoard(0xFF << 8),
+    BitBoard(0xFF << 16),
+    BitBoard(0xFF << 24),
+    BitBoard(0xFF << 32),
+    BitBoard(0xFF << 40),
+    BitBoard(0xFF << 48),
+    BitBoard(0xFF << 56),
+];
+const MAX_DEPTH_INCREASE: u16 = 0;
+const SIDE_SCALAR: i32 = 10;
 
 fn assess_board(board: &Board) -> i32 {
     let mut val: i32 = 0;
     for piece_val_pair in PIECE_VALUES {
         let piece_bits = board.pieces(piece_val_pair.piece);
-        for (_, square) in (board.color_combined(Color::White) & piece_bits).enumerate() {
-            val += piece_val_pair.value
-                + (square.get_rank().to_index() - Rank::Fifth.to_index()) as i32;
+        let white_pieces = board.color_combined(Color::White) & piece_bits;
+        let black_pieces = board.color_combined(Color::Black) & piece_bits;
+        for (rank, rank_bits) in RANK_BITBOARDS.iter().enumerate() {
+            let num_pieces = (white_pieces & rank_bits).popcnt() as i32;
+            val += (piece_val_pair.value + piece_val_pair.forward_scale * rank as i32) * num_pieces;
         }
-        for (_, square) in (board.color_combined(Color::Black) & piece_bits).enumerate() {
-            val += piece_val_pair.value
-                + (Rank::Eighth.to_index() - square.get_rank().to_index()) as i32;
+        for (rank, rank_bits) in RANK_BITBOARDS.iter().enumerate() {
+            let num_pieces = (black_pieces & rank_bits).popcnt() as i32;
+            val -= (piece_val_pair.value + piece_val_pair.forward_scale * (7 - rank) as i32)
+                * num_pieces;
         }
     }
     let side_scalar = match board.side_to_move() {
-        Color::White => 1,
-        Color::Black => -1,
+        Color::White => SIDE_SCALAR,
+        Color::Black => -SIDE_SCALAR,
     };
     val += side_scalar * MoveGen::new_legal(board).len() as i32;
     if let Some(flipped) = board.null_move() {
@@ -139,13 +159,19 @@ fn search(
         Color::White => result.value = i32::MIN,
         Color::Black => result.value = i32::MAX,
     }
-    let masks = [board.color_combined(!board.side_to_move()), &!chess::EMPTY];
+    let masks = [
+        board.color_combined(!board.side_to_move()) & !board.pieces(Piece::Pawn),
+        !chess::EMPTY,
+    ];
     let mut moves = MoveGen::new_legal(&board);
     for (processed, mask) in masks.into_iter().enumerate() {
-        moves.set_iterator_mask(*mask);
+        moves.set_iterator_mask(mask);
         for mov in &mut moves {
             let new_board = board.make_move_new(mov);
-            let new_depth = if processed < masks.len() - 1 || new_board.checkers().0 > 0 {
+            let new_depth = if (processed < masks.len() - 1
+                && board.piece_on(mov.get_source()).unwrap_or(Piece::King) == Piece::Pawn)
+                || new_board.checkers().0 > 0
+            {
                 depth
             } else {
                 depth - 1
