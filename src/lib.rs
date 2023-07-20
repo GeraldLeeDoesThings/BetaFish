@@ -1,60 +1,17 @@
-use chess::{BitBoard, Board, BoardStatus, CacheTable, ChessMove, Color, MoveGen, Piece};
+mod constants;
+
+use chess::{Board, BoardStatus, CacheTable, ChessMove, Color, MoveGen, Piece};
 use std::cmp::{max, min};
 use std::ffi::{c_ushort, CStr, CString};
 use std::os::raw::c_char;
 use std::str::FromStr;
-
-struct PieceValuePair {
-    piece: Piece,
-    value: i32,
-    forward_scale: i32,
-}
+use crate::constants::*;
 
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
 struct SearchResult {
     value: i32,
     best_move: Option<ChessMove>,
 }
-
-const PIECE_VALUES: [PieceValuePair; 5] = [
-    PieceValuePair {
-        piece: Piece::Pawn,
-        value: 100,
-        forward_scale: 3,
-    },
-    PieceValuePair {
-        piece: Piece::Knight,
-        value: 300,
-        forward_scale: 2,
-    },
-    PieceValuePair {
-        piece: Piece::Bishop,
-        value: 300,
-        forward_scale: 2,
-    },
-    PieceValuePair {
-        piece: Piece::Rook,
-        value: 500,
-        forward_scale: 3,
-    },
-    PieceValuePair {
-        piece: Piece::Queen,
-        value: 700,
-        forward_scale: 4,
-    },
-];
-const RANK_BITBOARDS: [BitBoard; 8] = [
-    BitBoard(0xFF),
-    BitBoard(0xFF << 8),
-    BitBoard(0xFF << 16),
-    BitBoard(0xFF << 24),
-    BitBoard(0xFF << 32),
-    BitBoard(0xFF << 40),
-    BitBoard(0xFF << 48),
-    BitBoard(0xFF << 56),
-];
-const MAX_DEPTH_INCREASE: u16 = 0;
-const SIDE_SCALAR: i32 = 10;
 
 fn assess_board(board: &Board) -> i32 {
     let mut val: i32 = 0;
