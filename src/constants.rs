@@ -11,7 +11,7 @@ pub const PIECE_VALUES: [PieceValuePair; 5] = [
     PieceValuePair {
         piece: Piece::Pawn,
         value: 100,
-        forward_scale: 3,
+        forward_scale: 7,
         attack_weight: 2,
     },
     PieceValuePair {
