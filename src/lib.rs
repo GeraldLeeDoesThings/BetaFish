@@ -1,16 +1,44 @@
 mod constants;
 
+use crate::constants::*;
 use chess::{Board, BoardStatus, CacheTable, ChessMove, Color, MoveGen, Piece};
 use std::cmp::{max, min};
 use std::ffi::{c_ushort, CStr, CString};
 use std::os::raw::c_char;
 use std::str::FromStr;
-use crate::constants::*;
 
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
 struct SearchResult {
     value: i32,
     best_move: Option<ChessMove>,
+}
+
+#[inline]
+fn get_attack_weight(board: &Board) -> usize {
+    let mut current_moves = MoveGen::new_legal(board);
+    let mut attack_weight: usize = 0;
+    current_moves.set_iterator_mask(match board.side_to_move() {
+        Color::White => {
+            WHITE_KING_DANGER_SQUARE_MAP[(board.pieces(Piece::King)
+                & board.color_combined(Color::Black))
+            .to_square()
+            .to_index()]
+        }
+        Color::Black => {
+            BLACK_KING_DANGER_SQUARE_MAP[(board.pieces(Piece::King)
+                & board.color_combined(Color::White))
+            .to_square()
+            .to_index()]
+        }
+    });
+    for current_move in current_moves {
+        attack_weight += PIECE_VALUES[board
+            .piece_on(current_move.get_source())
+            .unwrap()
+            .to_index()]
+        .attack_weight as usize;
+    }
+    attack_weight
 }
 
 fn assess_board(board: &Board) -> i32 {
@@ -33,9 +61,12 @@ fn assess_board(board: &Board) -> i32 {
         Color::White => SIDE_SCALAR,
         Color::Black => -SIDE_SCALAR,
     };
-    val += side_scalar * MoveGen::new_legal(board).len() as i32;
+    val += side_scalar
+        * (MoveGen::new_legal(board).len() as i32 + ATTACK_WEIGHT_MAP[get_attack_weight(board)]);
     if let Some(flipped) = board.null_move() {
-        val -= side_scalar * MoveGen::new_legal(&flipped).len() as i32
+        val -= side_scalar
+            * (MoveGen::new_legal(&flipped).len() as i32
+                + ATTACK_WEIGHT_MAP[get_attack_weight(&flipped)])
     }
     val
 }
