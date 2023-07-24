@@ -3,8 +3,7 @@ mod constants;
 use crate::constants::*;
 use chess::{Board, BoardStatus, CacheTable, ChessMove, Color, MoveGen, Piece};
 use std::cmp::{max, min};
-use std::ffi::{c_ushort, CStr, CString};
-use std::os::raw::c_char;
+use std::io::stdin;
 use std::str::FromStr;
 
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
@@ -73,11 +72,7 @@ fn assess_board(board: &Board) -> i32 {
 
 /// # Safety
 /// raw_fen_ptr must point to a valid null terminated string
-#[no_mangle]
-pub unsafe extern "C" fn start_search(
-    raw_fen_ptr: *const c_char,
-    raw_depth: *const c_ushort,
-) -> *mut c_char {
+fn start_search(fen: &str, depth: u16) -> SearchResult {
     let mut memo_table: CacheTable<SearchResult> = CacheTable::new(
         2 << 26,
         SearchResult {
@@ -85,20 +80,14 @@ pub unsafe extern "C" fn start_search(
             value: 0,
         },
     );
-    let fen = CStr::from_ptr(raw_fen_ptr).to_str().unwrap();
-    let depth = *raw_depth.as_ref().unwrap();
-    let best = search(
+    search(
         Board::from_str(fen).unwrap(),
         depth,
         depth + MAX_DEPTH_INCREASE,
         i32::MIN,
         i32::MAX,
         &mut memo_table,
-    );
-    match best.best_move {
-        Some(best_move) => CString::new(best_move.to_string()).unwrap().into_raw(),
-        None => CString::new("0000").unwrap().into_raw(),
-    }
+    )
 }
 
 fn search(
@@ -200,7 +189,34 @@ fn search(
     result
 }
 
-#[no_mangle]
-pub extern "C" fn main() {
-    println!("Hello, world!");
+fn main() {
+    let mut line_in = String::new();
+    let mut fen: String = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_string();
+    let mut depth: u16 = 7;
+    loop {
+        match stdin().read_line(&mut line_in) {
+            Ok(_n) => {
+                if line_in.starts_with("fen") {
+                    fen = line_in[4..].to_string();
+                }
+                if line_in.starts_with("depth") {
+                    match line_in[6..].trim().parse::<u16>() {
+                        Ok(val) => depth = val,
+                        Err(error) => println!("DEPTH ERROR: {} | {}", line_in[6..].trim(), error),
+                    }
+                }
+                if line_in.starts_with("eval") {
+                    match start_search(fen.as_str(), depth).best_move {
+                        Some(good_move) => println!("{}", good_move),
+                        None => println!("0000"),
+                    }
+                }
+                if line_in.starts_with("quit") {
+                    return;
+                }
+            }
+            Err(error) => println!("ERROR: {}", error),
+        }
+        line_in.clear();
+    }
 }

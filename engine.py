@@ -1,5 +1,4 @@
 import chess
-import ctypes
 from helpers import send_command, expect_num_args, expect_at_pos
 from search import search
 
@@ -91,8 +90,8 @@ handlers = {
 }
 
 if __name__ == "__main__":
-    context = EngineContext()
-    while context.runLoop:
+    engineContext = EngineContext()
+    while engineContext.runLoop:
         commandRaw = input()
         if len(commandRaw) == 0:
             continue
@@ -101,6 +100,6 @@ if __name__ == "__main__":
         command = tokens[0]
         handler = handlers.get(command, None)
         if handler is not None:
-            handler(context, *tokens[1:])
+            handler(engineContext, *tokens[1:])
         else:
             send_command("info", "string", f"unknown command {command}")
