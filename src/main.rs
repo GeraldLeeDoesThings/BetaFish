@@ -10,6 +10,7 @@ use std::str::FromStr;
 struct SearchResult {
     value: i32,
     best_move: Option<ChessMove>,
+    depth: u16,
 }
 
 #[inline]
@@ -78,11 +79,13 @@ fn start_search(fen: &str, depth: u16) -> SearchResult {
         SearchResult {
             best_move: None,
             value: 0,
+            depth: 0,
         },
     );
     search(
         Board::from_str(fen).unwrap(),
-        depth,
+        MAX_DEPTH_INCREASE,
+        0,
         depth + MAX_DEPTH_INCREASE,
         i32::MIN,
         i32::MAX,
@@ -92,7 +95,8 @@ fn start_search(fen: &str, depth: u16) -> SearchResult {
 
 fn search(
     board: Board,
-    depth: u16,
+    logical_depth: u16,
+    true_depth: u16,
     depth_limit: u16,
     mut alpha: i32,
     mut beta: i32,
@@ -104,6 +108,7 @@ fn search(
             return SearchResult {
                 best_move: None,
                 value: 0,
+                depth: u16::MAX,
             }
         }
         BoardStatus::Checkmate => {
@@ -111,18 +116,21 @@ fn search(
                 Color::White => SearchResult {
                     best_move: None,
                     value: i32::MIN,
+                    depth: u16::MAX,
                 },
                 Color::Black => SearchResult {
                     best_move: None,
                     value: i32::MAX,
+                    depth: u16::MAX,
                 },
             }
         }
     }
-    if depth == 0 || depth_limit == 0 {
+    if logical_depth >= depth_limit || true_depth >= depth_limit {
         return SearchResult {
             best_move: None,
             value: assess_board(&board),
+            depth: true_depth,
         };
     }
     if let Some(cached_result) = memo_table.get(board.get_hash()) {
@@ -131,6 +139,7 @@ fn search(
     let mut result = SearchResult {
         best_move: None,
         value: 0,
+        depth: true_depth,
     };
     match board.side_to_move() {
         Color::White => result.value = i32::MIN,
@@ -149,14 +158,15 @@ fn search(
                 && board.piece_on(mov.get_source()).unwrap_or(Piece::King) == Piece::Pawn)
                 || new_board.checkers().0 > 0
             {
-                depth
+                logical_depth
             } else {
-                depth - 1
+                logical_depth + 1
             };
             let check = search(
                 new_board,
                 new_depth,
-                depth_limit - 1,
+                true_depth + 1,
+                depth_limit,
                 alpha,
                 beta,
                 memo_table,
@@ -165,7 +175,7 @@ fn search(
                 Color::White => {
                     alpha = max(alpha, check.value);
                     if check.value > result.value || result.best_move.is_none() {
-                        result = check;
+                        result.value = check.value;
                         result.best_move = Some(mov);
                     }
                     if result.value >= beta {
@@ -175,7 +185,7 @@ fn search(
                 Color::Black => {
                     beta = min(beta, check.value);
                     if check.value < result.value || result.best_move.is_none() {
-                        result = check;
+                        result.value = check.value;
                         result.best_move = Some(mov);
                     }
                     if result.value <= alpha {
@@ -185,7 +195,7 @@ fn search(
             }
         }
     }
-    memo_table.add(board.get_hash(), result);
+    memo_table.replace_if(board.get_hash(), result, |old| old.depth < result.depth);
     result
 }
 
