@@ -136,7 +136,7 @@ fn search(
             return SearchResult {
                 best_move: None,
                 value: 0,
-                depth: u16::MAX,
+                depth: 0,
             }
         }
         BoardStatus::Checkmate => {
@@ -144,12 +144,12 @@ fn search(
                 Color::White => SearchResult {
                     best_move: None,
                     value: i32::MIN,
-                    depth: u16::MAX,
+                    depth: 0,
                 },
                 Color::Black => SearchResult {
                     best_move: None,
                     value: i32::MAX,
-                    depth: u16::MAX,
+                    depth: 0,
                 },
             }
         }
