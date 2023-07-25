@@ -62,7 +62,7 @@ pub const RANK_BITBOARDS: [BitBoard; 8] = [
     BitBoard(0xFF << 48),
     BitBoard(0xFF << 56),
 ];
-pub const MAX_DEPTH_INCREASE: u16 = 0;
+pub const MAX_DEPTH_INCREASE: u16 = 3;
 pub const SIDE_SCALAR: i32 = 10;
 pub const WHITE_KING_DANGER_SQUARE_MAP: [BitBoard; 64] = [
     BitBoard(0x0000000000030303),
