@@ -5,7 +5,7 @@ mod eval;
 
 use crate::constants::*;
 use crate::eval::*;
-use chess::{Board, BoardStatus, CacheTable, ChessMove, Color, MoveGen, Piece};
+use chess::{BitBoard, Board, BoardStatus, CacheTable, ChessMove, Color, MoveGen, Piece};
 use std::cmp::{max, min, Ordering};
 use std::collections::BinaryHeap;
 use std::io::stdin;
@@ -44,11 +44,13 @@ impl HeuristicMovePair {
         board: Board,
         lazy_eval: i32,
         memo_table: &mut CacheTable<SearchResult>,
+        invert: bool,
     ) -> HeuristicMovePair {
+        let scalar = -(invert as i32) + (!invert) as i32;
         HeuristicMovePair {
             board,
             chess_move,
-            eval: search(board, 0, u16::MAX, 0, lazy_eval, 0, 0, memo_table).value,
+            eval: scalar * search(board, 0, u16::MAX, 0, lazy_eval, 0, 0, memo_table).value,
         }
     }
 }
@@ -177,9 +179,10 @@ fn search(
             }
         }
     }
-    if let Some(cached_result) = memo_table.get(board.get_hash()) {
-        if cached_result.depth <= true_depth {
-            return cached_result;
+    let cached_result = memo_table.get(board.get_hash());
+    if let Some(result) = cached_result {
+        if result.depth <= true_depth {
+            return result;
         }
     }
     if logical_depth >= depth_limit || true_depth >= depth_limit {
@@ -200,12 +203,19 @@ fn search(
         Color::White => result.value = i32::MIN,
         Color::Black => result.value = i32::MAX,
     }
-    let masks = [
-        board.color_combined(!board.side_to_move()) & !board.pieces(Piece::Pawn),
+    let mut masks = vec![
         !chess::EMPTY,
+        board.color_combined(!board.side_to_move()) & !board.pieces(Piece::Pawn),
     ];
+    if let Some(old_best) = cached_result {
+        if let Some(old_best_move) = old_best.best_move {
+            masks.push(BitBoard::from_square(old_best_move.get_dest()))
+        }
+    }
+    masks.reverse();
     let mut moves = MoveGen::new_legal(&board);
-    for (processed, mask) in masks.into_iter().enumerate() {
+    let num_masks = masks.len();
+    'mask_loop: for (processed, mask) in masks.into_iter().enumerate() {
         moves.set_iterator_mask(mask);
         let sorted_moves: BinaryHeap<HeuristicMovePair> = (&mut moves)
             .map(|m| {
@@ -214,11 +224,12 @@ fn search(
                     board.make_move_new(m),
                     lazy_eval + assess_incremental(&board, m),
                     memo_table,
+                    board.side_to_move() == Color::Black,
                 )
             })
             .collect();
         for mov in sorted_moves.into_iter_sorted() {
-            let new_depth = if (processed < masks.len() - 1
+            let new_depth = if (processed < num_masks - 1
                 && board
                     .piece_on(mov.chess_move.get_source())
                     .unwrap_or(Piece::King)
@@ -247,7 +258,7 @@ fn search(
                         result.best_move = Some(mov.chess_move);
                     }
                     if result.value >= beta {
-                        break;
+                        break 'mask_loop;
                     }
                 }
                 Color::Black => {
@@ -257,7 +268,7 @@ fn search(
                         result.best_move = Some(mov.chess_move);
                     }
                     if result.value <= alpha {
-                        break;
+                        break 'mask_loop;
                     }
                 }
             }
