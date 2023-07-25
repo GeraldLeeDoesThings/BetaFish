@@ -7,7 +7,7 @@ pub struct PieceValuePair {
     pub(crate) attack_weight: i32,
 }
 
-pub const PIECE_VALUES: [PieceValuePair; 5] = [
+pub const PIECE_VALUES: [PieceValuePair; 6] = [
     PieceValuePair {
         piece: Piece::Pawn,
         value: 100,
@@ -37,6 +37,12 @@ pub const PIECE_VALUES: [PieceValuePair; 5] = [
         value: 700,
         forward_scale: 4,
         attack_weight: 5,
+    },
+    PieceValuePair {
+        piece: Piece::King,
+        value: 0,
+        forward_scale: -10,
+        attack_weight: 0,
     },
 ];
 pub const RANK_BITBOARDS: [BitBoard; 8] = [
@@ -190,6 +196,7 @@ pub const ATTACK_WEIGHT_MAP: [i32; 100] = [
     500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500,
     500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500,
 ];
+pub const PLAYER_SCALAR_MAP: [i32; 2] = [1, -1];
 
 #[allow(unused)]
 #[inline]

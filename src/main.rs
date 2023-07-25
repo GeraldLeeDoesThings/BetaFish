@@ -1,8 +1,10 @@
 #![feature(binary_heap_into_iter_sorted)]
 
 mod constants;
+mod eval;
 
 use crate::constants::*;
+use crate::eval::*;
 use chess::{Board, BoardStatus, CacheTable, ChessMove, Color, MoveGen, Piece};
 use std::cmp::{max, min, Ordering};
 use std::collections::BinaryHeap;
@@ -12,6 +14,7 @@ use std::str::FromStr;
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
 struct SearchResult {
     value: i32,
+    lazy_value: i32,
     best_move: Option<ChessMove>,
     depth: u16,
 }
@@ -39,12 +42,13 @@ impl HeuristicMovePair {
     fn new(
         chess_move: ChessMove,
         board: Board,
+        lazy_eval: i32,
         memo_table: &mut CacheTable<SearchResult>,
     ) -> HeuristicMovePair {
         HeuristicMovePair {
             board,
             chess_move,
-            eval: search(board, 0, u16::MAX, 0, 0, 0, memo_table).value,
+            eval: search(board, 0, u16::MAX, 0, lazy_eval, 0, 0, memo_table).value,
         }
     }
 }
@@ -77,26 +81,9 @@ fn get_attack_weight(board: &Board) -> usize {
     attack_weight
 }
 
-fn assess_board(board: &Board) -> i32 {
+fn lazy_assess_board(board: &Board) -> i32 {
     let mut val: i32 = 0;
-    for piece_val_pair in PIECE_VALUES {
-        let piece_bits = board.pieces(piece_val_pair.piece);
-        let white_pieces = board.color_combined(Color::White) & piece_bits;
-        let black_pieces = board.color_combined(Color::Black) & piece_bits;
-        for (rank, rank_bits) in RANK_BITBOARDS.iter().enumerate() {
-            let num_pieces = (white_pieces & rank_bits).popcnt() as i32;
-            val += (piece_val_pair.value + piece_val_pair.forward_scale * rank as i32) * num_pieces;
-        }
-        for (rank, rank_bits) in RANK_BITBOARDS.iter().enumerate() {
-            let num_pieces = (black_pieces & rank_bits).popcnt() as i32;
-            val -= (piece_val_pair.value + piece_val_pair.forward_scale * (7 - rank) as i32)
-                * num_pieces;
-        }
-    }
-    let side_scalar = match board.side_to_move() {
-        Color::White => SIDE_SCALAR,
-        Color::Black => -SIDE_SCALAR,
-    };
+    let side_scalar = SIDE_SCALAR * PLAYER_SCALAR_MAP[board.side_to_move().to_index()];
     val += side_scalar
         * (MoveGen::new_legal(board).len() as i32 + ATTACK_WEIGHT_MAP[get_attack_weight(board)]);
     if let Some(flipped) = board.null_move() {
@@ -107,25 +94,57 @@ fn assess_board(board: &Board) -> i32 {
     val
 }
 
+fn assess_incremental(board: &Board, chess_move: ChessMove) -> i32 {
+    let mut val: i32 = 0;
+    let moving_piece = board.piece_on(chess_move.get_source()).unwrap();
+    let moving_val = &PIECE_VALUES[moving_piece.to_index()];
+    let result_piece = chess_move.get_promotion().unwrap_or(moving_piece);
+    let result_val = &PIECE_VALUES[result_piece.to_index()];
+    let captured_piece = board.piece_on(chess_move.get_dest());
+    let side_scalar = PLAYER_SCALAR_MAP[board.side_to_move().to_index()];
+    let current_player = board.side_to_move();
+    // Eval diff for moving forward (accounts for promotion)
+    val += eval_piece_position(result_piece, chess_move.get_dest(), current_player)
+        - eval_piece_position(moving_piece, chess_move.get_source(), current_player);
+    // Eval pure value diff for promoting
+    val += side_scalar * (result_val.value - moving_val.value);
+    // Eval diff for captures
+    if let Some(captured) = captured_piece {
+        val -= eval_piece(captured, chess_move.get_dest(), !board.side_to_move());
+    } else if let Some(en_passant_square) = board.en_passant() {
+        if moving_piece == Piece::Pawn
+            && chess_move.get_source().get_file() != chess_move.get_dest().get_file()
+        {
+            val -= eval_piece(Piece::Pawn, en_passant_square, !board.side_to_move());
+        }
+    }
+    val
+}
+
 /// # Safety
 /// raw_fen_ptr must point to a valid null terminated string
 fn start_search(fen: &str, depth: u16, memo_table: &mut CacheTable<SearchResult>) -> SearchResult {
+    let board = Board::from_str(fen).unwrap();
     search(
-        Board::from_str(fen).unwrap(),
+        board,
         MAX_DEPTH_INCREASE,
         0,
         depth + MAX_DEPTH_INCREASE,
+        eval_all_pieces_positional(board),
         i32::MIN,
         i32::MAX,
         memo_table,
     )
 }
 
+// TODO: reduce number of args by packaging
+#[allow(clippy::too_many_arguments)]
 fn search(
     board: Board,
     logical_depth: u16,
     true_depth: u16,
     depth_limit: u16,
+    lazy_eval: i32,
     mut alpha: i32,
     mut beta: i32,
     memo_table: &mut CacheTable<SearchResult>,
@@ -136,6 +155,7 @@ fn search(
             return SearchResult {
                 best_move: None,
                 value: 0,
+                lazy_value: 0,
                 depth: 0,
             }
         }
@@ -144,11 +164,13 @@ fn search(
                 Color::White => SearchResult {
                     best_move: None,
                     value: i32::MIN,
+                    lazy_value: i32::MIN,
                     depth: 0,
                 },
                 Color::Black => SearchResult {
                     best_move: None,
                     value: i32::MAX,
+                    lazy_value: i32::MAX,
                     depth: 0,
                 },
             }
@@ -162,13 +184,15 @@ fn search(
     if logical_depth >= depth_limit || true_depth >= depth_limit {
         return SearchResult {
             best_move: None,
-            value: assess_board(&board),
+            value: lazy_eval + lazy_assess_board(&board),
+            lazy_value: lazy_eval,
             depth: true_depth,
         };
     }
     let mut result = SearchResult {
         best_move: None,
         value: 0,
+        lazy_value: lazy_eval,
         depth: true_depth,
     };
     match board.side_to_move() {
@@ -183,7 +207,14 @@ fn search(
     for (processed, mask) in masks.into_iter().enumerate() {
         moves.set_iterator_mask(mask);
         let sorted_moves: BinaryHeap<HeuristicMovePair> = (&mut moves)
-            .map(|m| HeuristicMovePair::new(m, board.make_move_new(m), memo_table))
+            .map(|m| {
+                HeuristicMovePair::new(
+                    m,
+                    board.make_move_new(m),
+                    lazy_eval + assess_incremental(&board, m),
+                    memo_table,
+                )
+            })
             .collect();
         for mov in sorted_moves.into_iter_sorted() {
             let new_depth = if (processed < masks.len() - 1
@@ -202,6 +233,7 @@ fn search(
                 new_depth,
                 true_depth + 1,
                 depth_limit,
+                lazy_eval + assess_incremental(&board, mov.chess_move),
                 alpha,
                 beta,
                 memo_table,
@@ -243,6 +275,7 @@ fn main() {
         SearchResult {
             best_move: None,
             value: 0,
+            lazy_value: 0,
             depth: u16::MAX,
         },
     );
