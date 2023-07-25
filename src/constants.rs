@@ -4,6 +4,7 @@ pub struct PieceValuePair {
     pub(crate) piece: Piece,
     pub(crate) value: i32,
     pub(crate) forward_scale: i32,
+    pub(crate) center_scale: i32,
     pub(crate) attack_weight: i32,
 }
 
@@ -11,37 +12,43 @@ pub const PIECE_VALUES: [PieceValuePair; 6] = [
     PieceValuePair {
         piece: Piece::Pawn,
         value: 100,
-        forward_scale: 7,
+        forward_scale: 20,
+        center_scale: 20,
         attack_weight: 2,
     },
     PieceValuePair {
         piece: Piece::Knight,
         value: 300,
         forward_scale: 2,
+        center_scale: 0,
         attack_weight: 2,
     },
     PieceValuePair {
         piece: Piece::Bishop,
         value: 300,
         forward_scale: 2,
+        center_scale: -5,
         attack_weight: 2,
     },
     PieceValuePair {
         piece: Piece::Rook,
         value: 500,
-        forward_scale: 3,
+        forward_scale: 50,
+        center_scale: 0,
         attack_weight: 3,
     },
     PieceValuePair {
         piece: Piece::Queen,
         value: 700,
         forward_scale: 4,
+        center_scale: 0,
         attack_weight: 5,
     },
     PieceValuePair {
         piece: Piece::King,
         value: 0,
         forward_scale: -10,
+        center_scale: -10,
         attack_weight: 0,
     },
 ];

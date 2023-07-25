@@ -91,6 +91,7 @@ fn lazy_assess_board(board: &Board) -> i32 {
             * (MoveGen::new_legal(&flipped).len() as i32
                 + ATTACK_WEIGHT_MAP[get_attack_weight(&flipped)])
     }
+    val += eval_overall_pawn_bonus(board);
     val
 }
 
@@ -130,7 +131,7 @@ fn start_search(fen: &str, depth: u16, memo_table: &mut CacheTable<SearchResult>
         MAX_DEPTH_INCREASE,
         0,
         depth + MAX_DEPTH_INCREASE,
-        eval_all_pieces_positional(board),
+        eval_all_pieces_positional(&board),
         i32::MIN,
         i32::MAX,
         memo_table,
