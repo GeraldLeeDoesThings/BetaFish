@@ -10,6 +10,14 @@ use std::cmp::{max, min, Ordering};
 use std::collections::BinaryHeap;
 use std::io::stdin;
 use std::str::FromStr;
+use crate::NodeType::{All, Cut, PV};
+
+#[derive(Clone, Copy, PartialEq, PartialOrd)]
+enum NodeType {
+    PV,
+    Cut,
+    All
+}
 
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
 struct SearchResult {
@@ -17,6 +25,19 @@ struct SearchResult {
     lazy_value: i32,
     best_move: Option<ChessMove>,
     depth: u16,
+    node_type: NodeType,
+}
+
+impl SearchResult {
+    fn new(value: i32, lazy_value: i32, best_move: Option<ChessMove>, depth: u16) -> SearchResult {
+        SearchResult {
+            value,
+            lazy_value,
+            best_move,
+            depth,
+            node_type: PV,
+        }
+    }
 }
 
 #[derive(Eq, PartialEq)]
@@ -140,6 +161,16 @@ fn start_search(fen: &str, depth: u16, memo_table: &mut CacheTable<SearchResult>
     )
 }
 
+#[inline]
+fn advantaged_capture(chess_move: &ChessMove, board: &Board) -> bool {
+    let attacker = board.piece_on(chess_move.get_source()).unwrap();
+    if let Some(defender) = board.piece_on(chess_move.get_dest()) {
+        PIECE_VALUES[attacker.to_index()].value < PIECE_VALUES[defender.to_index()].value
+    } else {
+        false
+    }
+}
+
 // TODO: reduce number of args by packaging
 #[allow(clippy::too_many_arguments)]
 fn search(
@@ -155,27 +186,22 @@ fn search(
     match board.status() {
         BoardStatus::Ongoing => {}
         BoardStatus::Stalemate => {
-            return SearchResult {
-                best_move: None,
-                value: 0,
-                lazy_value: 0,
-                depth: 0,
-            }
+            return SearchResult::new(0, 0, None, 0);
         }
         BoardStatus::Checkmate => {
             return match board.side_to_move() {
-                Color::White => SearchResult {
-                    best_move: None,
-                    value: i32::MIN,
-                    lazy_value: i32::MIN,
-                    depth: 0,
-                },
-                Color::Black => SearchResult {
-                    best_move: None,
-                    value: i32::MAX,
-                    lazy_value: i32::MAX,
-                    depth: 0,
-                },
+                Color::White => SearchResult::new(
+                    i32::MIN,
+                    i32::MIN,
+                    None,
+                    0,
+                ),
+                Color::Black => SearchResult::new(
+                    i32::MAX,
+                    i32::MAX,
+                    None,
+                    0,
+                ),
             }
         }
     }
@@ -186,19 +212,14 @@ fn search(
         }
     }
     if logical_depth >= depth_limit || true_depth >= depth_limit {
-        return SearchResult {
-            best_move: None,
-            value: lazy_eval + lazy_assess_board(&board),
-            lazy_value: lazy_eval,
-            depth: true_depth,
-        };
+        return SearchResult::new(
+            lazy_eval + lazy_assess_board(&board),
+            lazy_eval,
+            None,
+            true_depth,
+        );
     }
-    let mut result = SearchResult {
-        best_move: None,
-        value: 0,
-        lazy_value: lazy_eval,
-        depth: true_depth,
-    };
+    let mut result = SearchResult::new(0, lazy_eval, None, true_depth);
     match board.side_to_move() {
         Color::White => result.value = i32::MIN,
         Color::Black => result.value = i32::MAX,
@@ -214,8 +235,7 @@ fn search(
     }
     masks.reverse();
     let mut moves = MoveGen::new_legal(&board);
-    let num_masks = masks.len();
-    'mask_loop: for (processed, mask) in masks.into_iter().enumerate() {
+    'mask_loop: for mask in masks.into_iter() {
         moves.set_iterator_mask(mask);
         let sorted_moves: BinaryHeap<HeuristicMovePair> = (&mut moves)
             .map(|m| {
@@ -229,17 +249,12 @@ fn search(
             })
             .collect();
         for mov in sorted_moves.into_iter_sorted() {
-            let new_depth = if (processed < num_masks - 1
-                && board
-                    .piece_on(mov.chess_move.get_source())
-                    .unwrap_or(Piece::King)
-                    == Piece::Pawn)
-                || mov.board.checkers().0 > 0
-            {
-                logical_depth
-            } else {
-                logical_depth + 1
-            };
+            let new_depth =
+                if advantaged_capture(&mov.chess_move, &board) || mov.board.checkers().0 > 0 {
+                    logical_depth
+                } else {
+                    logical_depth + 1
+                };
             let check = search(
                 mov.board,
                 new_depth,
@@ -258,6 +273,8 @@ fn search(
                         result.best_move = Some(mov.chess_move);
                     }
                     if result.value >= beta {
+                        // Beta cutoff
+                        result.node_type = Cut;
                         break 'mask_loop;
                     }
                 }
@@ -268,6 +285,8 @@ fn search(
                         result.best_move = Some(mov.chess_move);
                     }
                     if result.value <= alpha {
+                        // Alpha cutoff
+                        result.node_type = All;
                         break 'mask_loop;
                     }
                 }
@@ -284,12 +303,12 @@ fn main() {
     let mut depth: u16 = 7;
     let mut memo_table: CacheTable<SearchResult> = CacheTable::new(
         2 << 26,
-        SearchResult {
-            best_move: None,
-            value: 0,
-            lazy_value: 0,
-            depth: u16::MAX,
-        },
+        SearchResult::new(
+            0,
+            0,
+            None,
+            u16::MAX,
+        ),
     );
     loop {
         match stdin().read_line(&mut line_in) {
