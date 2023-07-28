@@ -70,12 +70,10 @@ fn get_attack_weight(board: &Board) -> usize {
 fn lazy_assess_board(board: &Board) -> i32 {
     let mut val: i32 = 0;
     let side_scalar = PLAYER_SCALAR_MAP[board.side_to_move().to_index()];
-    val += side_scalar
-        * (MoveGen::new_legal(board).len() as i32 + ATTACK_WEIGHT_MAP[get_attack_weight(board)]);
+    val += side_scalar * (eval_mobility(board) + ATTACK_WEIGHT_MAP[get_attack_weight(board)]);
     if let Some(flipped) = board.null_move() {
-        val -= side_scalar
-            * (MoveGen::new_legal(&flipped).len() as i32
-                + ATTACK_WEIGHT_MAP[get_attack_weight(&flipped)])
+        val -=
+            side_scalar * (eval_mobility(&flipped) + ATTACK_WEIGHT_MAP[get_attack_weight(&flipped)])
     }
     val += eval_overall_pawn_bonus(board);
     val
@@ -167,7 +165,7 @@ fn search(
                 All => beta = min(beta, result.value),
             }
             if alpha >= beta {
-                return result
+                return result;
             }
         }
     }
@@ -199,12 +197,11 @@ fn search(
         moves.set_iterator_mask(mask);
         for mov in &mut moves {
             let new_board = board.make_move_new(mov);
-            let new_depth =
-                if advantaged_capture(&mov, &board) || new_board.checkers().0 > 0 {
-                    logical_depth
-                } else {
-                    logical_depth + 1
-                };
+            let new_depth = if advantaged_capture(&mov, &board) || new_board.checkers().0 > 0 {
+                logical_depth
+            } else {
+                logical_depth + 1
+            };
             let check = search(
                 new_board,
                 new_depth,
@@ -250,7 +247,7 @@ fn search(
 fn main() {
     let mut line_in = String::new();
     let mut fen: String = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_string();
-    let mut depth: u16 = 7;
+    let mut depth: u16 = 6;
     let mut memo_table: CacheTable<SearchResult> =
         CacheTable::new(2 << 26, SearchResult::new(0, 0, None, u16::MAX));
     let mut board = Board::from_str(fen.as_str()).unwrap();
@@ -274,7 +271,10 @@ fn main() {
                     }
                 }
                 if line_in.starts_with("query") {
-                    println!("{}", start_search(board.to_string().as_str(), depth, &mut memo_table).value);
+                    println!(
+                        "{}",
+                        start_search(board.to_string().as_str(), depth, &mut memo_table).value
+                    );
                 }
                 if line_in.starts_with("move") {
                     if let Ok(chess_move) = ChessMove::from_san(&board, &line_in[5..]) {
@@ -286,7 +286,11 @@ fn main() {
                 }
                 if line_in.starts_with("cget") {
                     if let Some(cached) = memo_table.get(board.get_hash()) {
-                        println!("{} | {}", cached.value, cached.best_move.unwrap_or(ChessMove::default()));
+                        println!(
+                            "{} | {}",
+                            cached.value,
+                            cached.best_move.unwrap_or(ChessMove::default())
+                        );
                     }
                 }
                 if line_in.starts_with("quit") {

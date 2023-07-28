@@ -1,8 +1,8 @@
 use crate::constants::{PIECE_VALUES, PLAYER_SCALAR_MAP, RANK_BITBOARDS};
 use chess::Color::{Black, White};
 use chess::File::H;
-use chess::Piece::Pawn;
-use chess::{Board, Color, Piece, Rank, Square};
+use chess::Piece::{Pawn, Queen};
+use chess::{Board, Color, MoveGen, Piece, Rank, Square};
 use std::cmp::min;
 
 #[inline]
@@ -75,4 +75,14 @@ pub fn eval_overall_pawn_bonus(board: &Board) -> i32 {
         overall -= eval_pawn_extra(pawn_loc, board);
     }
     overall
+}
+
+pub fn eval_mobility(board: &Board) -> i32 {
+    let mut mobility = 0;
+    for mov in MoveGen::new_legal(board) {
+        if let Some(mover) = board.piece_on(mov.get_source()) {
+            mobility += (mover != Queen) as i32;
+        }
+    }
+    mobility
 }
