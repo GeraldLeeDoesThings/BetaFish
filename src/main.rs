@@ -5,18 +5,17 @@ mod eval;
 
 use crate::constants::*;
 use crate::eval::*;
+use crate::NodeType::{All, Cut, PV};
 use chess::{BitBoard, Board, BoardStatus, CacheTable, ChessMove, Color, MoveGen, Piece};
-use std::cmp::{max, min, Ordering};
-use std::collections::BinaryHeap;
+use std::cmp::{max, min};
 use std::io::stdin;
 use std::str::FromStr;
-use crate::NodeType::{All, Cut, PV};
 
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
 enum NodeType {
     PV,
     Cut,
-    All
+    All,
 }
 
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
@@ -36,42 +35,6 @@ impl SearchResult {
             best_move,
             depth,
             node_type: PV,
-        }
-    }
-}
-
-#[derive(Eq, PartialEq)]
-struct HeuristicMovePair {
-    board: Board,
-    chess_move: ChessMove,
-    eval: i32,
-}
-
-impl PartialOrd<Self> for HeuristicMovePair {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for HeuristicMovePair {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.eval.cmp(&other.eval)
-    }
-}
-
-impl HeuristicMovePair {
-    fn new(
-        chess_move: ChessMove,
-        board: Board,
-        lazy_eval: i32,
-        memo_table: &mut CacheTable<SearchResult>,
-        invert: bool,
-    ) -> HeuristicMovePair {
-        let scalar = -(invert as i32) + (!invert) as i32;
-        HeuristicMovePair {
-            board,
-            chess_move,
-            eval: scalar * search(board, 0, u16::MAX, 0, lazy_eval, 0, 0, memo_table).value,
         }
     }
 }
@@ -106,7 +69,7 @@ fn get_attack_weight(board: &Board) -> usize {
 
 fn lazy_assess_board(board: &Board) -> i32 {
     let mut val: i32 = 0;
-    let side_scalar = SIDE_SCALAR * PLAYER_SCALAR_MAP[board.side_to_move().to_index()];
+    let side_scalar = PLAYER_SCALAR_MAP[board.side_to_move().to_index()];
     val += side_scalar
         * (MoveGen::new_legal(board).len() as i32 + ATTACK_WEIGHT_MAP[get_attack_weight(board)]);
     if let Some(flipped) = board.null_move() {
@@ -165,7 +128,7 @@ fn start_search(fen: &str, depth: u16, memo_table: &mut CacheTable<SearchResult>
 fn advantaged_capture(chess_move: &ChessMove, board: &Board) -> bool {
     let attacker = board.piece_on(chess_move.get_source()).unwrap();
     if let Some(defender) = board.piece_on(chess_move.get_dest()) {
-        PIECE_VALUES[attacker.to_index()].value < PIECE_VALUES[defender.to_index()].value
+        PIECE_VALUES[attacker.to_index()].value <= PIECE_VALUES[defender.to_index()].value
     } else {
         false
     }
@@ -190,30 +153,27 @@ fn search(
         }
         BoardStatus::Checkmate => {
             return match board.side_to_move() {
-                Color::White => SearchResult::new(
-                    i32::MIN,
-                    i32::MIN,
-                    None,
-                    0,
-                ),
-                Color::Black => SearchResult::new(
-                    i32::MAX,
-                    i32::MAX,
-                    None,
-                    0,
-                ),
+                Color::White => SearchResult::new(i32::MIN, i32::MIN, None, 0),
+                Color::Black => SearchResult::new(i32::MAX, i32::MAX, None, 0),
             }
         }
     }
     let cached_result = memo_table.get(board.get_hash());
     if let Some(result) = cached_result {
         if result.depth <= true_depth {
-            return result;
+            match result.node_type {
+                PV => return result,
+                Cut => alpha = max(alpha, result.value),
+                All => beta = min(beta, result.value),
+            }
+            if alpha >= beta {
+                return result
+            }
         }
     }
     if logical_depth >= depth_limit || true_depth >= depth_limit {
         return SearchResult::new(
-            lazy_eval + lazy_assess_board(&board),
+            SIDE_SCALAR * lazy_eval + lazy_assess_board(&board),
             lazy_eval,
             None,
             true_depth,
@@ -237,30 +197,20 @@ fn search(
     let mut moves = MoveGen::new_legal(&board);
     'mask_loop: for mask in masks.into_iter() {
         moves.set_iterator_mask(mask);
-        let sorted_moves: BinaryHeap<HeuristicMovePair> = (&mut moves)
-            .map(|m| {
-                HeuristicMovePair::new(
-                    m,
-                    board.make_move_new(m),
-                    lazy_eval + assess_incremental(&board, m),
-                    memo_table,
-                    board.side_to_move() == Color::Black,
-                )
-            })
-            .collect();
-        for mov in sorted_moves.into_iter_sorted() {
+        for mov in &mut moves {
+            let new_board = board.make_move_new(mov);
             let new_depth =
-                if advantaged_capture(&mov.chess_move, &board) || mov.board.checkers().0 > 0 {
+                if advantaged_capture(&mov, &board) || new_board.checkers().0 > 0 {
                     logical_depth
                 } else {
                     logical_depth + 1
                 };
             let check = search(
-                mov.board,
+                new_board,
                 new_depth,
                 true_depth + 1,
                 depth_limit,
-                lazy_eval + assess_incremental(&board, mov.chess_move),
+                lazy_eval + assess_incremental(&board, mov),
                 alpha,
                 beta,
                 memo_table,
@@ -270,7 +220,7 @@ fn search(
                     alpha = max(alpha, check.value);
                     if check.value > result.value || result.best_move.is_none() {
                         result.value = check.value;
-                        result.best_move = Some(mov.chess_move);
+                        result.best_move = Some(mov);
                     }
                     if result.value >= beta {
                         // Beta cutoff
@@ -282,7 +232,7 @@ fn search(
                     beta = min(beta, check.value);
                     if check.value < result.value || result.best_move.is_none() {
                         result.value = check.value;
-                        result.best_move = Some(mov.chess_move);
+                        result.best_move = Some(mov);
                     }
                     if result.value <= alpha {
                         // Alpha cutoff
@@ -301,20 +251,15 @@ fn main() {
     let mut line_in = String::new();
     let mut fen: String = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_string();
     let mut depth: u16 = 7;
-    let mut memo_table: CacheTable<SearchResult> = CacheTable::new(
-        2 << 26,
-        SearchResult::new(
-            0,
-            0,
-            None,
-            u16::MAX,
-        ),
-    );
+    let mut memo_table: CacheTable<SearchResult> =
+        CacheTable::new(2 << 26, SearchResult::new(0, 0, None, u16::MAX));
+    let mut board = Board::from_str(fen.as_str()).unwrap();
     loop {
         match stdin().read_line(&mut line_in) {
             Ok(_n) => {
                 if line_in.starts_with("fen") {
                     fen = line_in[4..].to_string();
+                    board = Board::from_str(fen.as_str()).unwrap();
                 }
                 if line_in.starts_with("depth") {
                     match line_in[6..].trim().parse::<u16>() {
@@ -326,6 +271,22 @@ fn main() {
                     match start_search(fen.as_str(), depth, &mut memo_table).best_move {
                         Some(good_move) => println!("{}", good_move),
                         None => println!("0000"),
+                    }
+                }
+                if line_in.starts_with("query") {
+                    println!("{}", start_search(board.to_string().as_str(), depth, &mut memo_table).value);
+                }
+                if line_in.starts_with("move") {
+                    if let Ok(chess_move) = ChessMove::from_san(&board, &line_in[5..]) {
+                        board = board.make_move_new(chess_move);
+                    }
+                }
+                if line_in.starts_with("reset") {
+                    board = Board::from_str(fen.as_str()).unwrap();
+                }
+                if line_in.starts_with("cget") {
+                    if let Some(cached) = memo_table.get(board.get_hash()) {
+                        println!("{} | {}", cached.value, cached.best_move.unwrap_or(ChessMove::default()));
                     }
                 }
                 if line_in.starts_with("quit") {
