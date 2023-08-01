@@ -110,16 +110,37 @@ fn assess_incremental(board: &Board, chess_move: ChessMove) -> i32 {
 /// raw_fen_ptr must point to a valid null terminated string
 fn start_search(fen: &str, depth: u16, memo_table: &mut CacheTable<SearchResult>) -> SearchResult {
     let board = Board::from_str(fen).unwrap();
-    search(
-        board,
-        MAX_DEPTH_INCREASE,
-        0,
-        depth + MAX_DEPTH_INCREASE,
-        eval_all_pieces_positional(&board),
-        i32::MIN,
-        i32::MAX,
-        memo_table,
-    )
+    let mut upper_bound = i32::MAX;
+    let mut lower_bound = i32::MIN;
+    let mut guess: i32 = 0;
+    let mut beta: i32;
+    let mut best: SearchResult = SearchResult {
+        value: 0,
+        lazy_value: 0,
+        best_move: None,
+        depth,
+        node_type: NodeType::PV,
+    };
+    if let Some(prev) = memo_table.get(board.get_hash()) {
+        guess = prev.value
+    }
+    while lower_bound < upper_bound {
+        beta = guess + (guess == lower_bound) as i32;
+        best = search(
+            board,
+            MAX_DEPTH_INCREASE,
+            0,
+            depth + MAX_DEPTH_INCREASE,
+            eval_all_pieces_positional(&board),
+            beta - 1,
+            beta,
+            memo_table,
+        );
+        guess = best.value;
+        lower_bound = (guess < beta) as i32 * lower_bound + (guess >= beta) as i32 * guess;
+        upper_bound = (guess < beta) as i32 * guess + (guess >= beta) as i32 * upper_bound;
+    }
+    best
 }
 
 #[inline]
@@ -156,16 +177,30 @@ fn search(
             }
         }
     }
+
     let cached_result = memo_table.get(board.get_hash());
     if let Some(result) = cached_result {
         if result.depth <= true_depth {
             match result.node_type {
-                PV => return result,
-                Cut => alpha = max(alpha, result.value),
-                All => beta = min(beta, result.value),
-            }
-            if alpha >= beta {
-                return result;
+                PV => {
+                    if result.value >= beta || result.value <= alpha {
+                        return result;
+                    }
+                    alpha = max(alpha, result.value);
+                    beta = min(beta, result.value);
+                },
+                Cut => {
+                    if result.value >= beta {
+                        return result;
+                    }
+                    alpha = max(alpha, result.value);
+                },
+                All => {
+                    if result.value <= alpha {
+                        return result;
+                    }
+                    beta = min(beta, result.value);
+                },
             }
         }
     }
@@ -193,6 +228,8 @@ fn search(
     }
     masks.reverse();
     let mut moves = MoveGen::new_legal(&board);
+    let mut a = alpha;
+    let mut b = beta;
     'mask_loop: for mask in masks.into_iter() {
         moves.set_iterator_mask(mask);
         for mov in &mut moves {
@@ -208,46 +245,53 @@ fn search(
                 true_depth + 1,
                 depth_limit,
                 lazy_eval + assess_incremental(&board, mov),
-                alpha,
-                beta,
+                a,
+                b,
                 memo_table,
             );
             match board.side_to_move() {
                 Color::White => {
-                    alpha = max(alpha, check.value);
+                    a = max(a, check.value);
                     if check.value > result.value || result.best_move.is_none() {
                         result.value = check.value;
                         result.best_move = Some(mov);
                     }
                     if result.value >= beta {
                         // Beta cutoff
-                        result.node_type = Cut;
                         break 'mask_loop;
                     }
                 }
                 Color::Black => {
-                    beta = min(beta, check.value);
+                    b = min(b, check.value);
                     if check.value < result.value || result.best_move.is_none() {
                         result.value = check.value;
                         result.best_move = Some(mov);
                     }
                     if result.value <= alpha {
                         // Alpha cutoff
-                        result.node_type = All;
                         break 'mask_loop;
                     }
                 }
             }
         }
     }
-    memo_table.replace_if(board.get_hash(), result, |old| old.depth > result.depth);
+    if result.value <= alpha {
+        result.node_type = All;
+    }
+    else if result.value < beta {
+        result.node_type = PV;
+    }
+    else {
+        result.node_type = Cut;
+    }
+    memo_table.replace_if(board.get_hash(), result, |old| old.depth >= result.depth);
     result
 }
 
 fn main() {
     let mut line_in = String::new();
     let mut fen: String = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_string();
-    let mut depth: u16 = 6;
+    let mut depth: u16 = 7;
     let mut memo_table: CacheTable<SearchResult> =
         CacheTable::new(2 << 26, SearchResult::new(0, 0, None, u16::MAX));
     let mut board = Board::from_str(fen.as_str()).unwrap();

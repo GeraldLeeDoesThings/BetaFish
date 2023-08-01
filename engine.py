@@ -6,7 +6,7 @@ from search import search
 class EngineContext:
     def __init__(self):
         self.settings = {
-            "Depth": "6"
+            "Depth": "7"
         }
         self.debug = False
         self.position = chess.Board()
@@ -18,7 +18,7 @@ def handle_uci(_context: EngineContext, *args) -> None:
     expect_num_args("uci", [0], *args)
     send_command("id", "name", "BetaFish")
     send_command("id", "author", "Gerald Lee")
-    send_command("option", "name", "Depth", "type", "spin", "default", "6", "min", "1", "max", "32")
+    send_command("option", "name", "Depth", "type", "spin", "default", "7", "min", "1", "max", "32")
     send_command("option", "name", "Hash", "type", "spin", "default", "1", "min", "1", "max", "1024")
     send_command("option", "name", "Move Overhead", "type", "spin", "default", "0", "min", "0")
     send_command("option", "name", "Threads", "type", "spin", "default", "1", "min", "1", "max", "128")
